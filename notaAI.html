@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>notaAI</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0c10;--s1:#10121a;--s2:#161a26;--s3:#1d2130;
+  --border:#252c3d;--border2:#2e3650;
+  --acc:#5b8df5;--acc-dim:rgba(91,141,245,.13);
+  --green:#3ecf8e;--green-dim:rgba(62,207,142,.11);
+  --yellow:#f5c842;--yellow-dim:rgba(245,200,66,.11);
+  --red:#f76f6f;
+  --purple:#b57bff;--purple-dim:rgba(181,123,255,.13);
+  --orange:#ff9f43;--orange-dim:rgba(255,159,67,.11);
+  --pink:#ec4899;--pink-dim:rgba(236,72,153,.13);
+  --dad:#f5c842;--dad-dim:rgba(245,200,66,.15);
+  --mom:#ff9f43;--mom-dim:rgba(255,159,67,.15);
+  --kid:#3ecf8e;--kid-dim:rgba(62,207,142,.15);
+  --text:#dde1ee;--text2:#9aa0b8;--text3:#5a6278;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;overflow:hidden}
+@keyframes fadein{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(247,111,111,.4)}50%{box-shadow:0 0 0 7px rgba(247,111,111,0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(236,72,153,.5)}50%{box-shadow:0 0 0 8px rgba(236,72,153,0)}}
+@keyframes glowGreen{0%,100%{box-shadow:0 0 0 0 rgba(62,207,142,.5)}50%{box-shadow:0 0 0 8px rgba(62,207,142,0)}}
+@keyframes crownPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+*{scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* SETUP */
+#setup{position:fixed;inset:0;background:var(--bg);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.setup-box{background:var(--s2);border:1px solid var(--border2);border-radius:16px;padding:32px;width:480px;max-width:100%}
+.setup-box h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.setup-box h1 span{color:var(--acc)}
+.setup-box>p{font-size:13px;color:var(--text2);margin-bottom:22px;line-height:1.7}
+.setup-label{font-size:11.5px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;margin-top:18px}
+.setup-input{width:100%;background:var(--s3);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text);font-family:'JetBrains Mono',monospace;outline:none}
+.setup-input:focus{border-color:var(--acc)}
+.setup-hint{font-size:11.5px;color:var(--text3);margin-top:6px;line-height:1.7}
+.setup-hint a{color:var(--acc);text-decoration:none}
+.feature-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.feature-item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:9px;background:var(--s1);border:1px solid var(--border)}
+.feature-item span:first-child{font-size:18px;flex-shrink:0}
+.feature-item strong{font-size:12.5px;display:block;margin-bottom:2px}
+.feature-item small{font-size:11px;color:var(--text3);line-height:1.5}
+.btn-start{width:100%;background:var(--acc);color:#fff;border:none;padding:12px;border-radius:9px;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer;margin-top:22px}
+.btn-start:hover{background:#4a7de0}
+
+/* APP LAYOUT */
+#app{display:none;grid-template-rows:56px 1fr;grid-template-columns:1fr 360px;height:100vh}
+#app.panel-open{grid-template-columns:0.85fr 320px 320px}
+header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 16px;gap:10px;background:var(--s1);border-bottom:1px solid var(--border)}
+.logo{font-weight:700;font-size:15px;letter-spacing:-.4px;white-space:nowrap}
+.logo span{color:var(--acc)}
+.mtitle{background:transparent;border:none;outline:none;font-family:'Inter',sans-serif;font-size:13px;color:var(--text2);flex:1;min-width:0;max-width:200px;border-left:1px solid var(--border);padding-left:12px;margin-left:4px}
+.mtitle::placeholder{color:var(--text3)}
+.hright{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.timer{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text3);min-width:44px;text-align:right}
+.timer.on{color:var(--red)}
+.btn{display:flex;align-items:center;gap:5px;padding:6px 10px;border-radius:7px;border:none;font-family:'Inter',sans-serif;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;position:relative}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-rec{background:var(--acc);color:#fff}
+.btn-rec.recording{background:var(--red);animation:pulse 2s infinite}
+.btn-export{background:var(--s3);color:var(--text2);border:1px solid var(--border)}
+.btn-panel{background:var(--s3);color:var(--text2);border:1px solid var(--border)}
+.btn-panel.active{border-color:var(--acc);background:var(--acc-dim);color:var(--acc)}
+.btn-panel.objectives.active{border-color:var(--yellow);background:var(--yellow-dim);color:var(--yellow)}
+.btn-panel.feedback.active{border-color:var(--green);background:var(--green-dim);color:var(--green)}
+.btn-panel.objections.active{border-color:var(--pink);background:var(--pink-dim);color:var(--pink)}
+.btn-badge{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;font-size:8.5px;font-weight:700;border-radius:8px;min-width:15px;height:15px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+.live-indicator{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--purple);font-weight:500;opacity:0;transition:opacity .3s}
+.live-indicator.on{opacity:1}
+
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--border);background:var(--s1);flex-shrink:0;height:40px}
+.tabs{display:flex;gap:2px}
+.tab{padding:6px 11px;border-radius:6px;font-size:11px;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:transparent;font-family:'Inter',sans-serif;transition:all .15s}
+.tab.active{background:var(--s3);color:var(--text)}
+.scroll{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.notes-scroll{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:9px}
+
+.left-panel{display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden;background:var(--bg)}
+.side-panel{display:flex;flex-direction:column;background:var(--s1);border-right:1px solid var(--border);overflow:hidden}
+
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;color:var(--text3);text-align:center;padding:28px}
+.empty svg{opacity:.25}
+.empty h3{font-size:12.5px;font-weight:600;color:var(--text2)}
+.empty p{font-size:11.5px;line-height:1.75;max-width:230px}
+
+.seg{display:flex;gap:9px;animation:fadein .3s ease}
+.seg-time{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text3);padding-top:3px;flex-shrink:0;width:32px}
+.seg-text{font-size:12.5px;color:var(--text2);line-height:1.7}
+.seg-text.fresh{color:var(--text)}
+.interim{font-size:12px;color:var(--text3);font-style:italic;border-left:2px solid var(--acc);padding-left:9px;margin-left:41px;animation:fadein .2s ease}
+.full-transcript{font-size:12.5px;color:var(--text2);line-height:1.8;white-space:pre-wrap;padding:16px}
+
+.ncard{border-radius:9px;border:1px solid var(--border);overflow:hidden;animation:fadein .4s ease}
+.ncard-head{display:flex;align-items:center;gap:7px;padding:7px 11px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.ncard-body{padding:7px 11px}
+.nitem{display:flex;gap:7px;padding:4px 0;border-bottom:1px solid var(--border)}
+.nitem:last-child{border-bottom:none}
+.nbullet{flex-shrink:0;width:5px;height:5px;border-radius:50%;margin-top:6px}
+.ntext{font-size:11.5px;color:var(--text2);line-height:1.6}
+
+/* GOALS PANEL */
+.goals-section{border-radius:9px;border:1px solid var(--border2);overflow:hidden;animation:fadein .4s ease}
+.goals-head{padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;display:flex;align-items:center;gap:7px}
+.goal-item{display:flex;gap:9px;padding:7px 12px;border-bottom:1px solid var(--border);align-items:flex-start;position:relative}
+.goal-item:last-child{border-bottom:none}
+.goal-item.primary{background:linear-gradient(90deg, rgba(255,159,67,.08), transparent)}
+.goal-tag{flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:4px;margin-top:2px}
+.goal-text{font-size:11.5px;color:var(--text2);line-height:1.6;flex:1}
+.crown-badge{flex-shrink:0;font-size:13px;animation:crownPulse 2s infinite;margin-top:1px}
+.primary-label{display:inline-block;font-size:8.5px;font-weight:700;color:var(--mom);background:var(--mom-dim);padding:1px 6px;border-radius:4px;margin-left:6px;text-transform:uppercase;letter-spacing:.04em;vertical-align:middle}
+
+/* OBJECTION CARDS */
+.objection-card{border-radius:10px;border:1.5px solid var(--pink);overflow:hidden;animation:fadein .35s ease,glow 2s ease 1;background:var(--s2)}
+.objection-card.acknowledged{border-color:var(--border);opacity:.55}
+.obj-head{display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--pink-dim);color:var(--pink);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.obj-num{background:var(--pink);color:#fff;border-radius:5px;padding:1px 6px;font-size:9.5px;flex-shrink:0}
+.obj-time{margin-left:auto;font-size:9px;opacity:.7;font-weight:500;text-transform:none}
+.obj-body{padding:9px 11px}
+.obj-detected{font-size:10.5px;color:var(--text3);font-style:italic;margin-bottom:8px;line-height:1.55;border-left:2px solid var(--border2);padding-left:8px}
+.obj-suggest-label{font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:flex;align-items:center;gap:5px}
+.obj-phrase{background:var(--s3);border-radius:7px;padding:8px 10px;font-size:11.5px;color:var(--text);line-height:1.6;margin-bottom:6px;border-left:3px solid var(--green)}
+.obj-phrase:last-child{margin-bottom:0}
+.obj-dismiss{margin-top:8px;display:flex;justify-content:flex-end}
+.obj-dismiss button{background:transparent;border:1px solid var(--border);color:var(--text3);font-size:9.5px;padding:4px 9px;border-radius:6px;cursor:pointer;font-family:'Inter',sans-serif}
+.obj-dismiss button:hover{color:var(--text2);border-color:var(--border2)}
+
+/* FEEDBACK CARDS */
+.feedback-card{border-radius:10px;border:1.5px solid var(--green);overflow:hidden;background:var(--s2);animation:fadein .35s ease,glowGreen 2s ease 1}
+.feedback-card.mom{border-color:var(--mom)}
+.fb-head{display:flex;align-items:center;gap:8px;padding:9px 11px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.fb-head.kid{background:var(--kid-dim);color:var(--kid)}
+.fb-head.mom{background:var(--mom-dim);color:var(--mom)}
+.fb-body{padding:9px 11px}
+.fb-strength{background:var(--s3);border-radius:7px;padding:8px 10px;font-size:11.5px;color:var(--text);line-height:1.6}
+.fb-strength.kid{border-left:3px solid var(--kid)}
+.fb-strength.mom{border-left:3px solid var(--mom)}
+.fb-time{font-size:9px;opacity:.7;text-transform:none;margin-left:auto}
+
+.analyzing-bar{display:none;align-items:center;gap:9px;padding:8px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--purple);background:var(--purple-dim);flex-shrink:0}
+.analyzing-bar.on{display:flex}
+.spin{width:12px;height:12px;border:2px solid var(--purple);border-top-color:transparent;border-radius:50%;animation:spin .75s linear infinite}
+
+.live-badge{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--red);font-weight:500;opacity:0;transition:opacity .3s}
+.live-badge.on{opacity:1}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--red);animation:blink 1.2s infinite}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--s3);border:1px solid var(--border2);padding:8px 16px;border-radius:8px;font-size:12px;color:var(--text2);opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;z-index:999;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <div class="setup-box">
+    <h1>nota<span>AI</span></h1>
+    <p>Transcribe, toma notas y analiza en tiempo real — todo en una sola sesión.</p>
+
+    <div class="feature-list">
+      <div class="feature-item"><span>👨👩🧒</span><div><strong>Objetivos de padre, madre y niño</strong><small>Identifica también cuál es el objetivo más fuerte de la madre</small></div></div>
+      <div class="feature-item"><span>🌟</span><div><strong>Fortalezas y feedback</strong><small>Detecta logros del niño y frases para compartir con la madre</small></div></div>
+      <div class="feature-item"><span>🎯</span><div><strong>Objeciones en vivo</strong><small>Detecta objeciones de venta y sugiere cómo responder</small></div></div>
+    </div>
+
+    <div class="setup-label">Tu API Key de Google Gemini (gratis)</div>
+    <input class="setup-input" id="apiKeyInput" type="password" placeholder="Pega tu API key de Gemini aquí"/>
+    <p class="setup-hint">
+      Obtén tu clave gratis y sin tarjeta en <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> → Create API key.<br>
+      Se guarda solo en tu navegador.
+    </p>
+
+    <button class="btn-start" onclick="startApp()">Entrar a la app →</button>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <div style="display:flex;align-items:center;flex:1;min-width:0;gap:6px">
+      <div class="logo">nota<span>AI</span></div>
+      <input class="mtitle" id="meetingTitle" placeholder="Nombre de la sesión…"/>
+      <div class="live-indicator" id="liveIndicator"><div class="spin" style="width:9px;height:9px"></div>IA</div>
+    </div>
+    <div class="hright">
+      <span class="timer" id="timer">00:00</span>
+      <button class="btn btn-panel objectives" id="btnGoals" onclick="togglePanel('goals')">
+        👨👩🧒 Objetivos<span class="btn-badge" id="goalsBtnBadge" style="display:none">0</span>
+      </button>
+      <button class="btn btn-panel feedback" id="btnFeedback" onclick="togglePanel('feedback')">
+        🌟 Fortalezas<span class="btn-badge" id="feedbackBtnBadge" style="display:none">0</span>
+      </button>
+      <button class="btn btn-panel objections" id="btnObjections" onclick="togglePanel('objections')">
+        🎯 Objeciones<span class="btn-badge" id="objBtnBadge" style="display:none">0</span>
+      </button>
+      <button class="btn btn-rec" id="btnRec" onclick="toggleRec()">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
+        <span id="recLabel">Iniciar</span>
+      </button>
+      <button class="btn btn-export" onclick="exportNotes()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar
+      </button>
+    </div>
+  </header>
+
+  <!-- LEFT: TRANSCRIPT (always visible) -->
+  <div class="left-panel">
+    <div class="panel-header">
+      <div class="tabs">
+        <button class="tab active" id="tabLive" onclick="switchLeft('live')">En vivo</button>
+        <button class="tab" id="tabFull" onclick="switchLeft('full')">Completa</button>
+        <button class="tab" id="tabNotesL" onclick="switchLeft('notesInline')">Notas</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px">
+        <div class="live-badge" id="liveBadge"><div class="live-dot"></div>EN VIVO</div>
+        <span id="segCount" style="font-size:10px;color:var(--text3)"></span>
+      </div>
+    </div>
+    <div id="liveView" class="scroll">
+      <div class="empty" id="liveEmpty">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <h3>Sin audio aún</h3>
+        <p>Presiona <strong>Iniciar</strong> — todo el análisis corre automáticamente en segundo plano</p>
+      </div>
+    </div>
+    <div id="fullView" style="display:none;flex:1;overflow-y:auto">
+      <div class="empty" id="fullEmpty"><h3>Sin transcripción</h3><p>Aparece aquí mientras grabas</p></div>
+      <div class="full-transcript" id="fullTranscriptEl" style="display:none"></div>
+    </div>
+    <div id="notesInlineView" class="notes-scroll" style="display:none">
+      <div class="empty" id="notesEmpty">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" style="opacity:.25"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        <h3>Sin notas aún</h3>
+        <p>La IA tomará notas automáticamente mientras grabas</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDE PANELS: only one visible at a time, toggled by header buttons -->
+  <div class="side-panel" id="panelGoals" style="display:none">
+    <div class="panel-header">
+      <span style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">👨👩🧒 Objetivos</span>
+      <span id="goalsPanelCount" style="font-size:10px;color:var(--text3)"></span>
+    </div>
+    <div class="notes-scroll" id="goalsView">
+      <div class="empty" id="goalsEmpty">
+        <h3>Sin objetivos detectados</h3>
+        <p>La IA separará objetivos del padre, la madre (marcando el más fuerte) y el niño</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="side-panel" id="panelFeedback" style="display:none">
+    <div class="panel-header">
+      <span style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">🌟 Fortalezas y feedback</span>
+      <span id="feedbackPanelCount" style="font-size:10px;color:var(--text3)"></span>
+    </div>
+    <div class="notes-scroll" id="feedbackView">
+      <div class="empty" id="feedbackEmpty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" style="opacity:.25"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+        <h3>Esperando fortalezas</h3>
+        <p>La IA detectará fortalezas del niño y frases para compartir con la madre</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="side-panel" id="panelObjections" style="display:none">
+    <div class="panel-header">
+      <span style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">🎯 Objeciones en vivo</span>
+      <span id="objPanelCount" style="font-size:10px;color:var(--text3)"></span>
+    </div>
+    <div class="notes-scroll" id="objView">
+      <div class="empty" id="objEmpty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" style="opacity:.25"><path d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        <h3>Esperando objeciones</h3>
+        <p>Cuando detecte una objeción del guion, aparecerá aquí con la respuesta sugerida</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="analyzing-bar" id="analyzingBar" style="grid-column:1/-1"><div class="spin"></div><span>Analizando…</span></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════ OBJECTIONS DATABASE ════════════
+const OBJECTIONS_SCRIPT = [
+{n:1,title:"Pago en efectivo",phrases:["Vamos a hacer una pequeña reserva con un pago en cuenta, y después completas con efectivo — sino no puedo guardar el lugar y si corto la plaza le van a ganar los cupos.","No puedo guardar los cupos hasta que haya algún pago registrado en la escuela."]},
+{n:2,title:"El niño dijo que no quiere",phrases:["¿Qué pasó, cómo que ahora no te gusta si recién te encantaba?","Te vas al padre: ¿desde cuándo las decisiones educativas las toma el niño?"]},
+{n:3,title:"Está muy caro",phrases:["Sí, totalmente. Es una inversión importante y tiene todo el sentido que quieras evaluarla bien antes de decidir.","Con toda honestidad, no me interesa que tomes una decisión con la que no te sientas cómodo.","Ayúdame a entender: cuando dices que se siente costoso, ¿qué es lo que más te preocupa exactamente?","Entendiendo que la economía no lo permite — más allá de eso, ¿la escuela te convence? (escuchar respuesta)","¿Eso tiene más que ver con el valor total del programa o con la forma en que tendrías que asumir el pago?","¿Te parece caro por el número o por lo que ofrece la escuela?"]},
+{n:4,title:"No tengo dinero",phrases:["Entiendo perfectamente, no te voy a pedir algo que no puedes hacer ahora mismo.","Lo último que quiero es que esto se convierta en una presión para ustedes.","Ayúdame a entender un poco mejor la situación: ¿te refieres a que hoy no cuentas con el dinero, o a que ahora no es una inversión que puedas asumir?","⚠️ Si responde 'sí podría reunirlo pero me dejaría ajustado' — todavía NO has llegado a la objeción real, sigue indagando con calma.","Tiene sentido. Siendo honestos, nadie quiere tomar una decisión que lo deje incómodo económicamente.","¿Lo que te preocupa es el impacto en las finanzas familiares, o todavía no estás seguro de que sea el momento adecuado?"]},
+{n:5,title:"Pagar más tarde",phrases:["Claro, sin problema. Tiene todo el sentido que quieras hacerlo cuando te sientas listo.","¿Qué sería diferente la próxima semana que te permitiría tomar la decisión hoy? (escuchar)","¿Eso tiene más que ver con un tema económico o con algo que todavía te gustaría revisar antes de confirmar?"]},
+{n:6,title:"Me pagan a fin de mes",phrases:["Ayúdame a entender: cuando dices la próxima semana, ¿es porque hoy quieres asegurar la decisión con el pago disponible, o hay algo más que revisar?","ESCENARIO A (timing real → 'sí, es solo que me pagan'): el programa está diseñado para familias que deciden en esta misma sesión, para organizar los grupos desde el inicio. Veamos una forma de pago que te permita arrancar hoy sin desorganizarte.","ESCENARIO B (excusa de timing → duda real): aquí NO hables de dinero. Pregunta: 'si lo dejamos de lado un segundo, ¿qué sería lo único que te haría sentir completamente seguro de empezar hoy?'","💡 Frase base: ¿la idea es solo esperar al pago o hay algo más que te gustaría revisar antes de confirmar?"]},
+{n:7,title:"Solo tengo efectivo",phrases:["Ayúdame a entender: ¿es porque hoy no cuentas con una tarjeta o normalmente no manejas pagos digitales?","El proceso de inscripción se hace en el momento con medios digitales — quiero ver si es un tema técnico o si hay algo que podamos organizar para que no te limite la decisión."]},
+{n:8,title:"Mi esposo tiene la tarjeta",phrases:["¿Es porque él también toma la decisión contigo, o solo es el medio de pago?","CASO 1 (necesita hablar con él — NO empujar): ¿qué te gustaría tener claro hoy para explicárselo con tranquilidad? 👉 Esto convierte a la mamá en puente, no en obstáculo.","CASO 2 (solo logística): si todo lo demás te hace sentido, podemos organizar el pago sin que dependa de ese detalle."]},
+{n:9,title:"Déjame pensarlo",phrases:["Claro, tiene todo el sentido. Está bien tomarte un momento para pensarlo.","Solo para entenderte bien: ¿es porque te gustaría revisar algo específico del programa?"]},
+{n:10,title:"Hablarlo con el esposo",phrases:["Claro, totalmente, tiene sentido.","¿Hay alguna cosa que no te quedara clara? ¿Mamá sabía de la clase de hoy? ¿Qué crees que va a pensar ella?","Más allá de lo que diga mamá, considerando la economía familiar, ¿crees que el valor es algo que pueden cubrir? (llevarlo a los números)","Ayúdame a entender: cuando lo hablas con tu esposo, ¿es una decisión que toman siempre juntos, o más para contarle lo que viste hoy?","¿Cuándo hables con él, qué crees que te va a preguntar? — él no estuvo aquí, no vio el progreso ni cómo se desenvolvió.","⚠️ Urgencia real del cupo: la inscripción hay que hacerla durante la clase para asegurar el lugar. ¿Te vas a arriesgar a que pierda su lugar solo por hablar con mamá?"]},
+{n:11,title:"Quiero comparar",phrases:["Me parece muy válido, tiene todo el sentido que quieras comparar antes de decidir. Te agradezco que seas tan transparente.","Cuando dices que quieres comparar, ¿ya tienes alguna opción en mente o todavía estás explorando qué existe?"]},
+{n:12,title:"El niño siempre abandona",phrases:["Te entiendo, tiene todo el sentido. Es una preocupación válida cuando antes no ha sido constante.","Ayúdame a entender: cuando dices que suele abandonar, ¿te refieres a que empieza y deja a medias, o a que pierde interés cuando se vuelve más difícil?"]},
+{n:13,title:"Me preocupa que no lo sostenga",phrases:["Entiendo, tiene todo el sentido. Es una duda válida pensando en un proceso de varios meses.","¿Es porque has visto que le cuesta mantener actividades en el tiempo, o es más una preocupación general por la duración del programa?","Lo vimos hoy motivado y entretenido — ¿de verdad crees que no lo va a hacer? ¿Le pone esta energía a todo lo que hace?","(Mencionar tasa de deserción si aplica)"]},
+{n:14,title:"Y si no le gusta y lo deja",phrases:["Entiendo, es una preocupación totalmente válida.","Te soy honesta: no puedo prometer que a todos los niños les guste, depende de cómo conecte con el proceso.","Cuando uno invierte en sus hijos quiere sentir que tiene sentido hacerlo.","¿Lo que más te preocupa es que no le guste, o que si eso pasa sientas que la inversión no valió la pena?"]},
+{n:15,title:"Demasiadas actividades",phrases:["Sí, te entiendo. Es cierto que hoy los chicos tienen muchas actividades y no es decisión menor sumar algo más.","¿Te preocupa más que se sature, o que no le quede espacio para disfrutar otras cosas?"]},
+{n:16,title:"Lo aprende en YouTube",phrases:["Totalmente de acuerdo, YouTube es útil y tiene mucho contenido. Tiene sentido que te lo preguntes.","¿Ya ha intentado aprender algo así por su cuenta, o lo ves más como alternativa en general?","Vas a gastar tu tiempo libre enseñándole, en vez de pasar tiempo de calidad con tu hijo — ahí está la diferencia de la formación pedagógica."]},
+{n:17,title:"Opiniones malas",phrases:["Te entiendo, tiene todo el sentido que lo preguntes. Es importante revisar bien antes de decidir.","Ayúdame a entender qué fue lo que viste o qué te generó la duda, para orientarte mejor."]},
+{n:18,title:"Cierre / siguiente paso",phrases:["Mira, ya con esta claridad, lo que sigue es que te enviemos los datos para confirmar la inscripción."]},
+{n:19,title:"🎓 Ofrecer una beca (solo si la necesidad económica es real)",phrases:["PASO 1 — Construir el puente: Vi a [nombre] trabajar hoy y tiene un potencial enorme — como profesora no me puedo quedar tranquila sabiendo que se quedó afuera por un tema económico.","Esto no lo hago con todos — pero por el tipo de alumno que es [nombre], quiero darte una mano. Déjame ver qué puedo hacer.","PASO 2 — Presentar la beca: tengo asignadas becas trimestrales que la escuela nos da para asignar a los alumnos que creemos que las merecen. Con gusto te ofrezco una para [nombre].","Tómalo como un favor — para él y para ti, para que no tengas que ahogarte pagando esto.","PASO 3 (solo si pregunta) — La beca cubre 45% de la matrícula. Los grupos becados son de 9 chicos, no 30 — completamente manejables, con excelentes resultados.","PASO 4 — Si puede pagar parcial: puedo tramitar una autorización especial con mi jefe para pagar en cuotas — lo gestiono yo personalmente.","🚫 TRAMPAS: No la presentes como 'tenemos becas disponibles' — es algo que TÚ decidís asignar por ese niño específico. No expliques lo de los 9 chicos antes de que el padre acepte la idea. No la ofrezcas antes de confirmar que la necesidad es real. No hagas sentir mal al padre por su situación económica."]},
+];
+function buildObjectionsContext(){
+  return OBJECTIONS_SCRIPT.map(o=>`${o.n}. ${o.title}:\n${o.phrases.map(p=>'- '+p).join('\n')}`).join('\n\n');
+}
+
+// ════════════ STATE ════════════
+let apiKey='';
+let isRecording=false, recognition=null;
+let seconds=0, timerInterval=null;
+let segments=[], fullText='', lastAnalyzed=0;
+let autoTimer=null, interimEl=null;
+let allNotes={keyPoints:[],decisions:[],actionItems:[],quotes:[],objectives:[]};
+let allGoals={dad:[],mom:[],kid:[]};
+let momPrimaryGoal=null; // the single strongest/dominant mom goal, as text
+let detectedObjections=[];
+let feedbackItems=[];
+let activePanel=null; // 'goals' | 'feedback' | 'objections' | null
+
+// ════════════ SETUP ════════════
+function startApp(){
+  const key=document.getElementById('apiKeyInput').value.trim();
+  if(!key||key.length<20){showToast('⚠️ Ingresa una API key válida de Gemini');return;}
+  apiKey=key;
+  localStorage.setItem('notaai_gemini_key',key);
+  document.getElementById('setup').style.display='none';
+  document.getElementById('app').style.display='grid';
+}
+
+window.addEventListener('load',()=>{
+  const saved=localStorage.getItem('notaai_gemini_key');
+  if(saved)document.getElementById('apiKeyInput').value=saved;
+});
+
+// ════════════ PANEL TOGGLING ════════════
+function togglePanel(panel){
+  const app=document.getElementById('app');
+  const panels={goals:'panelGoals',feedback:'panelFeedback',objections:'panelObjections'};
+  const btns={goals:'btnGoals',feedback:'btnFeedback',objections:'btnObjections'};
+
+  if(activePanel===panel){
+    // close it
+    document.getElementById(panels[panel]).style.display='none';
+    document.getElementById(btns[panel]).classList.remove('active');
+    activePanel=null;
+    app.classList.remove('panel-open');
+    return;
+  }
+
+  // close previously active panel
+  if(activePanel){
+    document.getElementById(panels[activePanel]).style.display='none';
+    document.getElementById(btns[activePanel]).classList.remove('active');
+  }
+
+  // open new panel
+  document.getElementById(panels[panel]).style.display='flex';
+  document.getElementById(btns[panel]).classList.add('active');
+  activePanel=panel;
+  app.classList.add('panel-open');
+}
+
+// ════════════ RECORDING ════════════
+function toggleRec(){isRecording?stopRec():startRec();}
+
+function startRec(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('❌ Usa Chrome para reconocimiento de voz');return;}
+
+  recognition=new SR();
+  recognition.lang='es-ES';
+  recognition.continuous=true;
+  recognition.interimResults=true;
+  recognition.maxAlternatives=1;
+
+  recognition.onresult=(e)=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal){addSeg(t.trim());removeInterim();}
+      else interim+=t;
+    }
+    if(interim)showInterim(interim);
+  };
+
+  recognition.onerror=(e)=>{
+    if(e.error==='no-speech')return;
+    if(e.error==='not-allowed'){showToast('❌ Permiso de micrófono denegado. Revisa el candado 🔒 en Chrome.');setIsRec(false);return;}
+    console.warn('SR error:',e.error);
+  };
+
+  recognition.onend=()=>{
+    if(isRecording){try{recognition.start();}catch(err){console.warn('restart:',err);}}
+  };
+
+  try{
+    recognition.start();
+    setIsRec(true);
+    seconds=0;
+    timerInterval=setInterval(()=>{
+      seconds++;
+      document.getElementById('timer').textContent=fmt(seconds);
+      document.getElementById('timer').classList.add('on');
+    },1000);
+    document.getElementById('liveEmpty').style.display='none';
+    showToast('🎙️ Grabando — análisis automático activo');
+  }catch(e){
+    showToast('❌ Error al iniciar: '+e.message);
+  }
+}
+
+function stopRec(){
+  setIsRec(false);
+  if(recognition){try{recognition.stop();}catch(e){}recognition=null;}
+  clearInterval(timerInterval);
+  document.getElementById('timer').classList.remove('on');
+  removeInterim();
+  if(fullText.length>lastAnalyzed)analyzeNow();
+}
+
+function setIsRec(v){
+  isRecording=v;
+  document.getElementById('recLabel').textContent=v?'Detener':'Iniciar';
+  document.getElementById('btnRec').className='btn btn-rec'+(v?' recording':'');
+  document.getElementById('liveBadge').className='live-badge'+(v?' on':'');
+}
+
+// ════════════ TRANSCRIPT ════════════
+function addSeg(text){
+  if(!text)return;
+  const time=fmt(seconds);
+  segments.push({time,text});
+  fullText+=' '+text;
+
+  document.getElementById('fullTranscriptEl').textContent=fullText.trim();
+  document.getElementById('fullTranscriptEl').style.display='block';
+  document.getElementById('fullEmpty').style.display='none';
+
+  const scroll=document.getElementById('liveView');
+  scroll.querySelectorAll('.seg-text.fresh').forEach(el=>el.classList.remove('fresh'));
+  const div=document.createElement('div');
+  div.className='seg';
+  div.innerHTML=`<span class="seg-time">${time}</span><span class="seg-text fresh">${esc(text)}</span>`;
+  scroll.appendChild(div);
+  scroll.scrollTop=scroll.scrollHeight;
+  document.getElementById('segCount').textContent=segments.length+' seg.';
+
+  clearTimeout(autoTimer);
+  if(fullText.length-lastAnalyzed>160){
+    autoTimer=setTimeout(analyzeNow,1500);
+  }
+}
+
+function showInterim(text){
+  removeInterim();
+  const scroll=document.getElementById('liveView');
+  interimEl=document.createElement('div');
+  interimEl.className='interim';
+  interimEl.textContent=text;
+  scroll.appendChild(interimEl);
+  scroll.scrollTop=scroll.scrollHeight;
+}
+function removeInterim(){if(interimEl){interimEl.remove();interimEl=null;}}
+
+// ════════════ LEFT TABS ════════════
+function switchLeft(t){
+  document.getElementById('liveView').style.display=t==='live'?'flex':'none';
+  document.getElementById('fullView').style.display=t==='full'?'block':'none';
+  document.getElementById('notesInlineView').style.display=t==='notesInline'?'flex':'none';
+  document.getElementById('tabLive').className='tab'+(t==='live'?' active':'');
+  document.getElementById('tabFull').className='tab'+(t==='full'?' active':'');
+  document.getElementById('tabNotesL').className='tab'+(t==='notesInline'?' active':'');
+}
+
+// ════════════ GEMINI API CALL ════════════
+async function callGemini(prompt){
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const res=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{parts:[{text:prompt}]}],
+      generationConfig:{temperature:0.3,maxOutputTokens:2200}
+    })
+  });
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error('Gemini API '+res.status+': '+(err.error?.message||res.statusText));
+  }
+  const data=await res.json();
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  return text;
+}
+
+// ════════════ AI ANALYSIS — UNIFIED, ALWAYS DOES EVERYTHING ════════════
+async function analyzeNow(){
+  const newText=fullText.slice(lastAnalyzed).trim();
+  if(!newText||newText.length<15)return;
+  lastAnalyzed=fullText.length;
+  document.getElementById('analyzingBar').classList.add('on');
+  document.getElementById('liveIndicator').classList.add('on');
+
+  const prompt=`Eres una asistente experta observando una conversación en vivo entre una profesora/vendedora, un niño y su padre y/o madre (puede ser contexto de venta educativa o de clase/práctica). Analiza la transcripción reciente y genera TODO lo siguiente en una sola respuesta:
+
+1. NOTAS GENERALES
+2. OBJETIVOS separados por persona (padre, madre, niño) — y si la madre menciona VARIOS objetivos o preocupaciones, identifica cuál es el más fuerte/dominante/prioritario para ella.
+3. FORTALEZAS del niño observadas en la conversación o práctica, y frases concretas para que la profesora se las comparta a la madre (solo si hay evidencia real, sé específico y no genérico).
+4. OBJECIONES de venta detectadas, comparando con este guion:
+
+GUION DE OBJECIONES:
+${buildObjectionsContext()}
+
+Responde SOLO con JSON válido, sin backticks, sin texto extra, con esta estructura exacta:
+{
+  "keyPoints": ["punto clave"],
+  "decisions": ["decisión"],
+  "actionItems": ["tarea — responsable"],
+  "quotes": ["cita textual"],
+  "objectives": ["objetivo general de la sesión"],
+  "dadGoals": ["objetivo del padre"],
+  "momGoals": ["objetivo de la madre"],
+  "momPrimaryGoal": "si la madre mencionó UNO O MÁS objetivos, cuál es el más fuerte/prioritario en sus propias palabras — null si no hay suficiente info o solo hay uno obvio",
+  "kidGoals": ["objetivo del niño"],
+  "kidStrengths": ["fortaleza específica observada en el niño — concreta, no genérica"],
+  "momFeedback": ["frase cálida y específica de fortaleza/logro del niño para decirle a la madre"],
+  "objections": [{"number": 3, "matchedText": "lo que dijo el padre/madre"}]
+}
+
+Reglas:
+- Todas las categorías sin contenido real devuelven [] (o null para momPrimaryGoal).
+- "objections": solo coincidencias REALES con el guion (número 1-19). No repitas una ya resuelta en este fragmento.
+- "kidStrengths"/"momFeedback": solo con evidencia real, nunca inventes elogios genéricos.
+- "momPrimaryGoal": solo lo llenas si hay evidencia de que un objetivo pesa más que otros para la madre — no fuerces si no es claro.
+- No inventes nada que no esté en el texto.
+
+TRANSCRIPCIÓN RECIENTE:
+${newText}`;
+
+  try{
+    const raw=await callGemini(prompt);
+    const match=raw.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('Respuesta inesperada de la IA');
+    const p=JSON.parse(match[0]);
+    mergeNotes(p);
+    renderNotesInline();
+    renderGoals();
+    if(p.objections?.length)handleObjections(p.objections);
+    if(p.kidStrengths?.length||p.momFeedback?.length)handleFeedback(p);
+    showToast('✓ Actualizado');
+  }catch(e){
+    console.error(e);
+    showToast('❌ '+e.message.slice(0,90));
+  }finally{
+    document.getElementById('analyzingBar').classList.remove('on');
+    document.getElementById('liveIndicator').classList.remove('on');
+  }
+}
+
+function mergeNotes(p){
+  const dd=arr=>{const s=new Set();return arr.filter(i=>{const k=i.trim().toLowerCase().slice(0,45);if(s.has(k))return false;s.add(k);return true;});};
+  if(p.keyPoints?.length)   allNotes.keyPoints  =dd([...allNotes.keyPoints,  ...p.keyPoints]);
+  if(p.decisions?.length)   allNotes.decisions  =dd([...allNotes.decisions,  ...p.decisions]);
+  if(p.actionItems?.length) allNotes.actionItems=dd([...allNotes.actionItems,...p.actionItems]);
+  if(p.quotes?.length)      allNotes.quotes     =dd([...allNotes.quotes,     ...p.quotes]);
+  if(p.objectives?.length)  allNotes.objectives =dd([...allNotes.objectives, ...p.objectives]);
+  if(p.dadGoals?.length)    allGoals.dad        =dd([...allGoals.dad,        ...p.dadGoals]);
+  if(p.momGoals?.length)    allGoals.mom        =dd([...allGoals.mom,        ...p.momGoals]);
+  if(p.kidGoals?.length)    allGoals.kid        =dd([...allGoals.kid,        ...p.kidGoals]);
+  if(p.momPrimaryGoal&&typeof p.momPrimaryGoal==='string')momPrimaryGoal=p.momPrimaryGoal;
+}
+
+// ════════════ OBJECTIONS ════════════
+function handleObjections(objections){
+  let added=false;
+  objections.forEach(obj=>{
+    const script=OBJECTIONS_SCRIPT.find(o=>o.n===obj.number);
+    if(!script)return;
+    const alreadyActive=detectedObjections.some(d=>d.n===obj.number&&!d.dismissed);
+    if(alreadyActive)return;
+    detectedObjections.unshift({
+      id:Date.now()+Math.random(),n:obj.number,title:script.title,phrases:script.phrases,
+      matchedText:obj.matchedText||'',time:fmt(seconds),dismissed:false
+    });
+    added=true;
+  });
+  if(added){renderObjections();showToast('🎯 ¡Objeción detectada!',3500);}
+}
+
+function dismissObjection(id){
+  const obj=detectedObjections.find(o=>o.id===id);
+  if(obj)obj.dismissed=true;
+  renderObjections();
+}
+
+function renderObjections(){
+  const view=document.getElementById('objView');
+  const active=detectedObjections.filter(o=>!o.dismissed);
+  const badge=document.getElementById('objBtnBadge');
+  const panelCount=document.getElementById('objPanelCount');
+  if(detectedObjections.length===0){badge.style.display='none';return;}
+  badge.style.display='flex';badge.textContent=active.length;
+  panelCount.textContent=detectedObjections.length+' total';
+  document.getElementById('objEmpty').style.display='none';
+
+  view.innerHTML='';
+  detectedObjections.forEach(obj=>{
+    const card=document.createElement('div');
+    card.className='objection-card'+(obj.dismissed?' acknowledged':'');
+    card.innerHTML=`
+      <div class="obj-head">
+        <span class="obj-num">#${obj.n}</span><span>${esc(obj.title)}</span><span class="obj-time">${obj.time}</span>
+      </div>
+      <div class="obj-body">
+        ${obj.matchedText?`<div class="obj-detected">"${esc(obj.matchedText)}"</div>`:''}
+        <div class="obj-suggest-label">💡 Respuesta sugerida</div>
+        ${obj.phrases.slice(0,4).map(p=>`<div class="obj-phrase">${esc(p)}</div>`).join('')}
+        ${!obj.dismissed?`<div class="obj-dismiss"><button onclick="dismissObjection(${JSON.stringify(obj.id)})">Marcar resuelta</button></div>`:''}
+      </div>`;
+    view.appendChild(card);
+  });
+}
+
+// ════════════ FEEDBACK ════════════
+function handleFeedback(p){
+  let added=false;
+  (p.kidStrengths||[]).forEach(s=>{
+    feedbackItems.unshift({id:Date.now()+Math.random(),type:'kid',text:s,time:fmt(seconds)});
+    added=true;
+  });
+  (p.momFeedback||[]).forEach(s=>{
+    feedbackItems.unshift({id:Date.now()+Math.random(),type:'mom',text:s,time:fmt(seconds)});
+    added=true;
+  });
+  if(added){renderFeedback();showToast('🌟 ¡Fortaleza detectada!',3500);}
+}
+
+function renderFeedback(){
+  const view=document.getElementById('feedbackView');
+  const badge=document.getElementById('feedbackBtnBadge');
+  const panelCount=document.getElementById('feedbackPanelCount');
+  if(feedbackItems.length===0){badge.style.display='none';return;}
+  badge.style.display='flex';badge.textContent=feedbackItems.length;
+  panelCount.textContent=feedbackItems.length+' total';
+  document.getElementById('feedbackEmpty').style.display='none';
+
+  view.innerHTML='';
+  feedbackItems.forEach(item=>{
+    const card=document.createElement('div');
+    card.className=`feedback-card ${item.type}`;
+    const isKid=item.type==='kid';
+    card.innerHTML=`
+      <div class="fb-head ${item.type}">
+        <span>${isKid?'🧒':'👩'}</span><span>${isKid?'Fortaleza del niño':'Para decirle a mamá'}</span>
+        <span class="fb-time">${item.time}</span>
+      </div>
+      <div class="fb-body"><div class="fb-strength ${item.type}">${esc(item.text)}</div></div>`;
+    view.appendChild(card);
+  });
+}
+
+// ════════════ NOTES (inline on left panel) ════════════
+function renderNotesInline(){
+  const scroll=document.getElementById('notesInlineView');
+  const total=Object.values(allNotes).flat().length;
+  if(!total)return;
+  document.getElementById('notesEmpty').style.display='none';
+  scroll.innerHTML='';
+  const cats=[
+    {icon:'◆',label:'Puntos Clave',items:allNotes.keyPoints,bg:'var(--acc-dim)',color:'var(--acc)'},
+    {icon:'◎',label:'Objetivos',items:allNotes.objectives,bg:'var(--orange-dim)',color:'var(--orange)'},
+    {icon:'✓',label:'Decisiones',items:allNotes.decisions,bg:'var(--green-dim)',color:'var(--green)'},
+    {icon:'→',label:'Tareas',items:allNotes.actionItems,bg:'var(--yellow-dim)',color:'var(--yellow)'},
+    {icon:'❝',label:'Citas',items:allNotes.quotes,bg:'var(--purple-dim)',color:'var(--purple)',italic:true},
+  ];
+  cats.forEach(cat=>{
+    if(!cat.items.length)return;
+    const card=document.createElement('div');card.className='ncard';
+    card.innerHTML=`
+      <div class="ncard-head" style="background:${cat.bg};color:${cat.color}">
+        <span>${cat.icon}</span><span>${cat.label}</span><span style="margin-left:auto;font-size:9px;opacity:.6">${cat.items.length}</span>
+      </div>
+      <div class="ncard-body">${cat.items.map(i=>`<div class="nitem"><div class="nbullet" style="background:${cat.color}"></div><div class="ntext">${cat.italic?`"${esc(i)}"`:esc(i)}</div></div>`).join('')}</div>`;
+    scroll.appendChild(card);
+  });
+}
+
+// ════════════ GOALS (side panel) ════════════
+function renderGoals(){
+  const dad=allGoals.dad,mom=allGoals.mom,kid=allGoals.kid;
+  const total=dad.length+mom.length+kid.length;
+  if(!total)return;
+  document.getElementById('goalsEmpty').style.display='none';
+  const scroll=document.getElementById('goalsView');
+  scroll.innerHTML='';
+
+  // DAD
+  if(dad.length){
+    const s=document.createElement('div');s.className='goals-section';
+    s.innerHTML=`<div class="goals-head" style="background:var(--dad-dim);color:var(--dad);border-bottom:1px solid rgba(245,200,66,.2)"><span>👨</span><span>Padre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${dad.length}</span></div>${dad.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--dad-dim);color:var(--dad);border:1px solid rgba(245,200,66,.3)">Padre</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
+    scroll.appendChild(s);
+  }
+
+  // MOM — with primary goal highlighted
+  if(mom.length){
+    const s=document.createElement('div');s.className='goals-section';
+    let momHtml=`<div class="goals-head" style="background:var(--mom-dim);color:var(--mom);border-bottom:1px solid rgba(255,159,67,.2)"><span>👩</span><span>Madre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${mom.length}</span></div>`;
+    mom.forEach(goalText=>{
+      const isPrimary=momPrimaryGoal&&goalText.trim().toLowerCase()===momPrimaryGoal.trim().toLowerCase();
+      momHtml+=`<div class="goal-item${isPrimary?' primary':''}">
+        <span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span>
+        <div class="goal-text">${esc(goalText)}${isPrimary?'<span class="primary-label">🔥 Más fuerte</span>':''}</div>
+        ${isPrimary?'<span class="crown-badge">👑</span>':''}
+      </div>`;
+    });
+    // if momPrimaryGoal exists but doesn't exact-match any item (paraphrased), show it separately at top
+    const matchedExisting=mom.some(g=>g.trim().toLowerCase()===((momPrimaryGoal||'').trim().toLowerCase()));
+    if(momPrimaryGoal&&!matchedExisting){
+      momHtml=`<div class="goals-head" style="background:var(--mom-dim);color:var(--mom);border-bottom:1px solid rgba(255,159,67,.2)"><span>👩</span><span>Madre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${mom.length}</span></div>
+        <div class="goal-item primary">
+          <span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span>
+          <div class="goal-text">${esc(momPrimaryGoal)}<span class="primary-label">👑 Objetivo más fuerte</span></div>
+        </div>
+        ${mom.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
+    }
+    s.innerHTML=momHtml;
+    scroll.appendChild(s);
+  }
+
+  // KID
+  if(kid.length){
+    const s=document.createElement('div');s.className='goals-section';
+    s.innerHTML=`<div class="goals-head" style="background:var(--kid-dim);color:var(--kid);border-bottom:1px solid rgba(62,207,142,.2)"><span>🧒</span><span>Niño / Joven</span><span style="margin-left:auto;font-size:9px;opacity:.7">${kid.length}</span></div>${kid.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--kid-dim);color:var(--kid);border:1px solid rgba(62,207,142,.3)">Niño</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
+    scroll.appendChild(s);
+  }
+
+  const badge=document.getElementById('goalsBtnBadge');
+  badge.style.display='flex';badge.textContent=total;
+  document.getElementById('goalsPanelCount').textContent=total+' total';
+}
+
+// ════════════ EXPORT ════════════
+function exportNotes(){
+  const title=document.getElementById('meetingTitle').value||'Sesión';
+  const date=new Date().toLocaleDateString('es-ES',{dateStyle:'long'});
+  let md=`# ${title}\n**Fecha:** ${date}  |  **Duración:** ${fmt(seconds)}\n\n`;
+  [{l:'## 🔹 Puntos Clave',i:allNotes.keyPoints},
+   {l:'## ◎ Objetivos Generales',i:allNotes.objectives},
+   {l:'## ✅ Decisiones',i:allNotes.decisions},
+   {l:'## 📋 Tareas',i:allNotes.actionItems},
+   {l:'## 💬 Citas',i:allNotes.quotes},
+   {l:'## 👨 Objetivos del Padre',i:allGoals.dad},
+  ].forEach(c=>{if(!c.i.length)return;md+=c.l+'\n';c.i.forEach(i=>md+=`- ${i}\n`);md+='\n';});
+
+  if(allGoals.mom.length){
+    md+='## 👩 Objetivos de la Madre\n';
+    if(momPrimaryGoal)md+=`> 👑 **Objetivo más fuerte:** ${momPrimaryGoal}\n\n`;
+    allGoals.mom.forEach(i=>md+=`- ${i}\n`);
+    md+='\n';
+  }
+  if(allGoals.kid.length){
+    md+='## 🧒 Objetivos del Niño/Joven\n';
+    allGoals.kid.forEach(i=>md+=`- ${i}\n`);
+    md+='\n';
+  }
+
+  if(feedbackItems.length){
+    md+='## 🌟 Feedback de fortalezas\n\n';
+    const kidItems=feedbackItems.filter(f=>f.type==='kid');
+    const momItems=feedbackItems.filter(f=>f.type==='mom');
+    if(kidItems.length){md+='### 🧒 Fortalezas observadas en el niño\n';kidItems.forEach(f=>md+=`- (${f.time}) ${f.text}\n`);md+='\n';}
+    if(momItems.length){md+='### 👩 Para compartir con la madre\n';momItems.forEach(f=>md+=`- (${f.time}) ${f.text}\n`);md+='\n';}
+  }
+
+  if(detectedObjections.length){
+    md+='## 🎯 Objeciones detectadas durante la sesión\n\n';
+    detectedObjections.forEach(o=>{
+      md+=`**#${o.n} ${o.title}** (${o.time})${o.dismissed?' ✅ resuelta':''}\n`;
+      if(o.matchedText)md+=`> "${o.matchedText}"\n`;
+      md+='\n';
+    });
+  }
+
+  md+=`---\n## 📝 Transcripción\n\n${fullText.trim()}\n`;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([md],{type:'text/markdown'}));
+  a.download=`${title.replace(/\s+/g,'-')}_notas.md`;a.click();
+  showToast('Exportado ✓');
+}
+
+// ════════════ UTILS ════════════
+function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function showToast(msg,dur=3200){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),dur);
+}
+</script>
+</body>
+</html>
