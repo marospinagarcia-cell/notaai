@@ -176,6 +176,9 @@ header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-be
       Obtén tu clave gratis y sin tarjeta en <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> → Create API key.<br>
       Se guarda solo en tu navegador.
     </p>
+    <div class="setup-tip" id="setupTip" style="background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:12px;margin-top:14px;font-size:11.5px;color:var(--text2);line-height:1.7">
+      <strong style="color:var(--yellow)">⚠️ Importante al presionar Iniciar:</strong> Chrome te pedirá compartir una pestaña/pantalla. Elige <strong>"Toda la pantalla"</strong> y activa el toggle <strong>"Compartir audio del sistema"</strong> antes de aceptar — así capturamos también lo que dicen el niño y la mamá por tus audífonos, junto con tu voz por el micrófono.
+    </div>
 
     <button class="btn-start" onclick="startApp()">Entrar a la app →</button>
   </div>
@@ -319,16 +322,23 @@ function buildObjectionsContext(){
 
 // ════════════ STATE ════════════
 let apiKey='';
-let isRecording=false, recognition=null;
+let isRecording=false;
 let seconds=0, timerInterval=null;
 let segments=[], fullText='', lastAnalyzed=0;
-let autoTimer=null, interimEl=null;
 let allNotes={keyPoints:[],decisions:[],actionItems:[],quotes:[],objectives:[]};
 let allGoals={dad:[],mom:[],kid:[]};
-let momPrimaryGoal=null; // the single strongest/dominant mom goal, as text
+let momPrimaryGoal=null;
 let detectedObjections=[];
 let feedbackItems=[];
-let activePanel=null; // 'goals' | 'feedback' | 'objections' | null
+let activePanel=null;
+
+// audio capture state
+let micStream=null, systemStream=null, mixedStream=null, audioCtx=null;
+let mediaRecorder=null, chunkBuffer=[];
+let chunkTimer=null;
+const CHUNK_MS=15000; // 15-second blocks sent to Gemini
+let chunkIndex=0;
+let pendingChunks=0; // how many chunks are currently being transcribed/analyzed
 
 // ════════════ SETUP ════════════
 function startApp(){
@@ -352,173 +362,259 @@ function togglePanel(panel){
   const btns={goals:'btnGoals',feedback:'btnFeedback',objections:'btnObjections'};
 
   if(activePanel===panel){
-    // close it
     document.getElementById(panels[panel]).style.display='none';
     document.getElementById(btns[panel]).classList.remove('active');
     activePanel=null;
     app.classList.remove('panel-open');
     return;
   }
-
-  // close previously active panel
   if(activePanel){
     document.getElementById(panels[activePanel]).style.display='none';
     document.getElementById(btns[activePanel]).classList.remove('active');
   }
-
-  // open new panel
   document.getElementById(panels[panel]).style.display='flex';
   document.getElementById(btns[panel]).classList.add('active');
   activePanel=panel;
   app.classList.add('panel-open');
 }
 
-// ════════════ RECORDING ════════════
-function toggleRec(){isRecording?stopRec():startRec();}
-
-let lastInterimText='';
-let interimStableTimer=null;
-let interimStartTime=0;
-
-function createRecognition(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  const r=new SR();
-  r.lang='es-ES';
-  r.continuous=true;
-  r.interimResults=true;
-  r.maxAlternatives=3;
-
-  r.onresult=(e)=>{
-    let interim='';
-    let gotFinal=false;
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const t=e.results[i][0].transcript;
-      if(e.results[i].isFinal){
-        addSeg(t.trim());
-        removeInterim();
-        gotFinal=true;
-      } else {
-        interim+=t;
-      }
-    }
-    if(gotFinal){
-      lastInterimText='';
-      clearTimeout(interimStableTimer);
-      return;
-    }
-    if(interim){
-      showInterim(interim);
-      // Fallback: Chrome's Spanish recognition sometimes never marks a
-      // result as final — it just keeps revising the interim text forever.
-      // If the interim text stops changing for ~1.8s, treat it as final
-      // ourselves so it doesn't get lost.
-      if(interim===lastInterimText){
-        // unchanged since last tick — if it's been stable long enough, commit it
-        if(Date.now()-interimStartTime>1800){
-          clearTimeout(interimStableTimer);
-          const toCommit=interim.trim();
-          if(toCommit){addSeg(toCommit);removeInterim();}
-          lastInterimText='';
-          return;
-        }
-      } else {
-        lastInterimText=interim;
-        interimStartTime=Date.now();
-        clearTimeout(interimStableTimer);
-        interimStableTimer=setTimeout(()=>{
-          if(lastInterimText){
-            const toCommit=lastInterimText.trim();
-            if(toCommit){addSeg(toCommit);removeInterim();}
-            lastInterimText='';
-          }
-        },1800);
-      }
-    }
-  };
-
-  r.onerror=(e)=>{
-    if(e.error==='no-speech')return; // normal during silence, onend will follow and we restart
-    if(e.error==='not-allowed'){showToast('❌ Permiso de micrófono denegado. Revisa el candado 🔒 en Chrome.');setIsRec(false);return;}
-    if(e.error==='aborted')return; // happens during our own restarts, ignore
-    console.warn('SR error:',e.error);
-  };
-
-  r.onend=()=>{
-    if(!isRecording)return;
-    // If there's unflushed interim text when the engine ends, commit it
-    // before restarting so we never silently drop a half-finished sentence.
-    if(lastInterimText.trim()){
-      addSeg(lastInterimText.trim());
-      removeInterim();
-      lastInterimText='';
-    }
-    clearTimeout(interimStableTimer);
-    // Always spin up a brand-new recognition instance — reusing the same
-    // object after it has ended is unreliable in Chrome and can silently
-    // fail to restart, which is what causes transcription to stop dead.
-    restartRecognitionWithRetry();
-  };
-
-  return r;
+// ════════════ AUDIO CAPTURE: mic + system, mixed ════════════
+async function toggleRec(){
+  isRecording?stopRec():await startRec();
 }
 
-function restartRecognitionWithRetry(attempt=0){
-  if(!isRecording)return;
+async function startRec(){
   try{
-    recognition=createRecognition();
-    recognition.start();
-  }catch(err){
-    console.warn('restart attempt '+attempt+' failed:',err);
-    if(attempt<5){
-      setTimeout(()=>restartRecognitionWithRetry(attempt+1),300);
-    }else{
-      showToast('⚠️ El micrófono se detuvo y no pudo reiniciarse. Presiona Detener e Iniciar de nuevo.');
-      setIsRec(false);
-    }
-  }
-}
-
-function startRec(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){showToast('❌ Usa Chrome para reconocimiento de voz');return;}
-
-  try{
-    recognition=createRecognition();
-    recognition.start();
-    setIsRec(true);
-    seconds=0;
-    timerInterval=setInterval(()=>{
-      seconds++;
-      document.getElementById('timer').textContent=fmt(seconds);
-      document.getElementById('timer').classList.add('on');
-    },1000);
-    document.getElementById('liveEmpty').style.display='none';
-    showToast('🎙️ Grabando — análisis automático activo');
+    // 1. Microphone (your voice)
+    micStream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+    });
   }catch(e){
-    showToast('❌ Error al iniciar: '+e.message);
+    showToast('❌ Permiso de micrófono denegado.');
+    return;
   }
+
+  try{
+    // 2. System audio (the kid/mom's voice coming through your speakers/headset)
+    systemStream=await navigator.mediaDevices.getDisplayMedia({
+      video:{width:1,height:1,frameRate:1},
+      audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}
+    });
+    const sysAudioTracks=systemStream.getAudioTracks();
+    systemStream.getVideoTracks().forEach(t=>t.stop()); // we don't need video
+    if(!sysAudioTracks.length){
+      showToast('⚠️ No se compartió audio del sistema. Activa "Compartir audio del sistema" en el diálogo. Continuando solo con tu micrófono.');
+      systemStream=null;
+    }
+  }catch(e){
+    // user cancelled the share dialog — fall back to mic-only
+    showToast('⚠️ Sin audio del sistema — grabando solo tu micrófono.');
+    systemStream=null;
+  }
+
+  // 3. Mix both streams into one using Web Audio API
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const dest=audioCtx.createMediaStreamDestination();
+
+    const micSource=audioCtx.createMediaStreamSource(micStream);
+    micSource.connect(dest);
+
+    if(systemStream){
+      const sysSource=audioCtx.createMediaStreamSource(new MediaStream(systemStream.getAudioTracks()));
+      sysSource.connect(dest);
+    }
+
+    mixedStream=dest.stream;
+  }catch(e){
+    console.error('Mix error:',e);
+    showToast('❌ Error mezclando audio: '+e.message);
+    cleanupStreams();
+    return;
+  }
+
+  // 4. Record the mixed stream in rolling chunks
+  startChunkedRecording();
+
+  isRecording=true;
+  setIsRec(true);
+  seconds=0;
+  timerInterval=setInterval(()=>{
+    seconds++;
+    document.getElementById('timer').textContent=fmt(seconds);
+    document.getElementById('timer').classList.add('on');
+  },1000);
+  document.getElementById('liveEmpty').style.display='none';
+  showToast(systemStream?'🎙️🖥️ Grabando micrófono + audio del sistema':'🎙️ Grabando solo micrófono');
+}
+
+function startChunkedRecording(){
+  const mimeType=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'audio/webm';
+  mediaRecorder=new MediaRecorder(mixedStream,{mimeType});
+  chunkBuffer=[];
+
+  mediaRecorder.ondataavailable=(e)=>{
+    if(e.data&&e.data.size>0)chunkBuffer.push(e.data);
+  };
+
+  mediaRecorder.onstop=()=>{
+    if(chunkBuffer.length){
+      const blob=new Blob(chunkBuffer,{type:mediaRecorder.mimeType});
+      chunkBuffer=[];
+      if(blob.size>2000){ // ignore near-empty/silent chunks
+        processAudioChunk(blob);
+      }
+    }
+    // restart recorder for the next chunk if still recording
+    if(isRecording){
+      startChunkedRecording();
+    }
+  };
+
+  mediaRecorder.start();
+  clearTimeout(chunkTimer);
+  chunkTimer=setTimeout(()=>{
+    if(mediaRecorder&&mediaRecorder.state==='recording')mediaRecorder.stop();
+  },CHUNK_MS);
 }
 
 function stopRec(){
+  isRecording=false;
   setIsRec(false);
-  if(recognition){try{recognition.stop();}catch(e){}recognition=null;}
+  clearTimeout(chunkTimer);
   clearInterval(timerInterval);
   document.getElementById('timer').classList.remove('on');
-  removeInterim();
-  if(fullText.length>lastAnalyzed)analyzeNow();
+  if(mediaRecorder&&mediaRecorder.state==='recording'){
+    try{mediaRecorder.stop();}catch(e){}
+  }
+  cleanupStreams();
+}
+
+function cleanupStreams(){
+  if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null;}
+  if(systemStream){systemStream.getTracks().forEach(t=>t.stop());systemStream=null;}
+  if(audioCtx){try{audioCtx.close();}catch(e){}audioCtx=null;}
+  mixedStream=null;
 }
 
 function setIsRec(v){
-  isRecording=v;
   document.getElementById('recLabel').textContent=v?'Detener':'Iniciar';
   document.getElementById('btnRec').className='btn btn-rec'+(v?' recording':'');
   document.getElementById('liveBadge').className='live-badge'+(v?' on':'');
 }
 
-// ════════════ TRANSCRIPT ════════════
-function addSeg(text){
+// ════════════ LEFT TABS ════════════
+function switchLeft(t){
+  document.getElementById('liveView').style.display=t==='live'?'flex':'none';
+  document.getElementById('fullView').style.display=t==='full'?'block':'none';
+  document.getElementById('notesInlineView').style.display=t==='notesInline'?'flex':'none';
+  document.getElementById('tabLive').className='tab'+(t==='live'?' active':'');
+  document.getElementById('tabFull').className='tab'+(t==='full'?' active':'');
+  document.getElementById('tabNotesL').className='tab'+(t==='notesInline'?' active':'');
+}
+
+// ════════════ AUDIO → BASE64 ════════════
+function blobToBase64(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onloadend=()=>resolve(reader.result.split(',')[1]);
+    reader.onerror=reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ════════════ GEMINI: TRANSCRIBE + ANALYZE IN ONE CALL ════════════
+async function callGeminiWithAudio(base64Audio,mimeType,promptText){
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const res=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents:[{parts:[
+        {inline_data:{mime_type:mimeType,data:base64Audio}},
+        {text:promptText}
+      ]}],
+      generationConfig:{temperature:0.2,maxOutputTokens:2200}
+    })
+  });
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error('Gemini API '+res.status+': '+(err.error?.message||res.statusText));
+  }
+  const data=await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+}
+
+async function processAudioChunk(blob){
+  chunkIndex++;
+  pendingChunks++;
+  document.getElementById('analyzingBar').classList.add('on');
+  document.getElementById('liveIndicator').classList.add('on');
+
+  const startTime=fmt(seconds>15?seconds-15:0);
+
+  const prompt=`Eres una asistente experta escuchando un fragmento de audio de una videollamada educativa entre una profesora, un niño (alumno) y su madre y/o padre. El audio puede mezclar la voz de la profesora (cercana, por micrófono) con las voces del niño y la madre (vía altavoces/audífonos, puede sonar un poco más distante).
+
+TAREA: Transcribe el audio en español, intentando identificar quién habla (Profesora / Niño / Madre / Padre) cuando sea posible por el contexto o tono. Luego analiza el contenido.
+
+Responde SOLO con JSON válido, sin backticks, sin texto extra, con esta estructura EXACTA:
+{
+  "transcript": "transcripción completa del audio, con etiquetas de hablante si es posible, ej: 'Profesora: ¿cómo te fue? Niño: bien, hice todo el ejercicio.'",
+  "keyPoints": ["punto clave"],
+  "decisions": ["decisión"],
+  "actionItems": ["tarea — responsable"],
+  "quotes": ["cita textual"],
+  "objectives": ["objetivo general de la sesión"],
+  "dadGoals": ["objetivo del padre"],
+  "momGoals": ["objetivo de la madre"],
+  "momPrimaryGoal": "si la madre mencionó uno o más objetivos, cuál es el más fuerte/prioritario en sus propias palabras — null si no aplica",
+  "kidGoals": ["objetivo del niño"],
+  "kidStrengths": ["fortaleza específica observada en el niño — concreta, no genérica"],
+  "momFeedback": ["frase cálida y específica de fortaleza/logro del niño para decirle a la madre"],
+  "objections": [{"number": 3, "matchedText": "lo que dijo el padre/madre"}]
+}
+
+GUION DE OBJECIONES (para comparar si aplica un contexto de venta):
+${buildObjectionsContext()}
+
+Reglas:
+- Si no se escucha nada relevante o el audio está vacío/silencioso, "transcript" puede ser "" y el resto [].
+- Todas las categorías sin contenido real devuelven [] (o null para momPrimaryGoal).
+- "objections": solo coincidencias REALES con el guion.
+- "kidStrengths"/"momFeedback": solo con evidencia real en el audio.
+- No inventes nada que no se escuche.`;
+
+  try{
+    const base64=await blobToBase64(blob);
+    const raw=await callGeminiWithAudio(base64,blob.type||'audio/webm',prompt);
+    const match=raw.match(/\{[\s\S]*\}/);
+    if(!match)throw new Error('Respuesta inesperada de la IA');
+    const p=JSON.parse(match[0]);
+
+    if(p.transcript&&p.transcript.trim()){
+      addSeg(startTime,p.transcript.trim());
+    }
+    mergeNotes(p);
+    renderNotesInline();
+    renderGoals();
+    if(p.objections?.length)handleObjections(p.objections);
+    if(p.kidStrengths?.length||p.momFeedback?.length)handleFeedback(p);
+    if(p.transcript&&p.transcript.trim())showToast('✓ Bloque '+chunkIndex+' transcrito y analizado');
+  }catch(e){
+    console.error(e);
+    showToast('❌ Bloque '+chunkIndex+': '+e.message.slice(0,80));
+  }finally{
+    pendingChunks--;
+    if(pendingChunks<=0){
+      document.getElementById('analyzingBar').classList.remove('on');
+      document.getElementById('liveIndicator').classList.remove('on');
+    }
+  }
+}
+
+// ════════════ TRANSCRIPT DISPLAY ════════════
+function addSeg(time,text){
   if(!text)return;
-  const time=fmt(seconds);
   segments.push({time,text});
   fullText+=' '+text;
 
@@ -533,117 +629,7 @@ function addSeg(text){
   div.innerHTML=`<span class="seg-time">${time}</span><span class="seg-text fresh">${esc(text)}</span>`;
   scroll.appendChild(div);
   scroll.scrollTop=scroll.scrollHeight;
-  document.getElementById('segCount').textContent=segments.length+' seg.';
-
-  clearTimeout(autoTimer);
-  if(fullText.length-lastAnalyzed>160){
-    autoTimer=setTimeout(analyzeNow,1500);
-  }
-}
-
-function showInterim(text){
-  removeInterim();
-  const scroll=document.getElementById('liveView');
-  interimEl=document.createElement('div');
-  interimEl.className='interim';
-  interimEl.textContent=text;
-  scroll.appendChild(interimEl);
-  scroll.scrollTop=scroll.scrollHeight;
-}
-function removeInterim(){if(interimEl){interimEl.remove();interimEl=null;}}
-
-// ════════════ LEFT TABS ════════════
-function switchLeft(t){
-  document.getElementById('liveView').style.display=t==='live'?'flex':'none';
-  document.getElementById('fullView').style.display=t==='full'?'block':'none';
-  document.getElementById('notesInlineView').style.display=t==='notesInline'?'flex':'none';
-  document.getElementById('tabLive').className='tab'+(t==='live'?' active':'');
-  document.getElementById('tabFull').className='tab'+(t==='full'?' active':'');
-  document.getElementById('tabNotesL').className='tab'+(t==='notesInline'?' active':'');
-}
-
-// ════════════ GEMINI API CALL ════════════
-async function callGemini(prompt){
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const res=await fetch(url,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      contents:[{parts:[{text:prompt}]}],
-      generationConfig:{temperature:0.3,maxOutputTokens:2200}
-    })
-  });
-  if(!res.ok){
-    const err=await res.json().catch(()=>({}));
-    throw new Error('Gemini API '+res.status+': '+(err.error?.message||res.statusText));
-  }
-  const data=await res.json();
-  const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-  return text;
-}
-
-// ════════════ AI ANALYSIS — UNIFIED, ALWAYS DOES EVERYTHING ════════════
-async function analyzeNow(){
-  const newText=fullText.slice(lastAnalyzed).trim();
-  if(!newText||newText.length<15)return;
-  lastAnalyzed=fullText.length;
-  document.getElementById('analyzingBar').classList.add('on');
-  document.getElementById('liveIndicator').classList.add('on');
-
-  const prompt=`Eres una asistente experta observando una conversación en vivo entre una profesora/vendedora, un niño y su padre y/o madre (puede ser contexto de venta educativa o de clase/práctica). Analiza la transcripción reciente y genera TODO lo siguiente en una sola respuesta:
-
-1. NOTAS GENERALES
-2. OBJETIVOS separados por persona (padre, madre, niño) — y si la madre menciona VARIOS objetivos o preocupaciones, identifica cuál es el más fuerte/dominante/prioritario para ella.
-3. FORTALEZAS del niño observadas en la conversación o práctica, y frases concretas para que la profesora se las comparta a la madre (solo si hay evidencia real, sé específico y no genérico).
-4. OBJECIONES de venta detectadas, comparando con este guion:
-
-GUION DE OBJECIONES:
-${buildObjectionsContext()}
-
-Responde SOLO con JSON válido, sin backticks, sin texto extra, con esta estructura exacta:
-{
-  "keyPoints": ["punto clave"],
-  "decisions": ["decisión"],
-  "actionItems": ["tarea — responsable"],
-  "quotes": ["cita textual"],
-  "objectives": ["objetivo general de la sesión"],
-  "dadGoals": ["objetivo del padre"],
-  "momGoals": ["objetivo de la madre"],
-  "momPrimaryGoal": "si la madre mencionó UNO O MÁS objetivos, cuál es el más fuerte/prioritario en sus propias palabras — null si no hay suficiente info o solo hay uno obvio",
-  "kidGoals": ["objetivo del niño"],
-  "kidStrengths": ["fortaleza específica observada en el niño — concreta, no genérica"],
-  "momFeedback": ["frase cálida y específica de fortaleza/logro del niño para decirle a la madre"],
-  "objections": [{"number": 3, "matchedText": "lo que dijo el padre/madre"}]
-}
-
-Reglas:
-- Todas las categorías sin contenido real devuelven [] (o null para momPrimaryGoal).
-- "objections": solo coincidencias REALES con el guion (número 1-19). No repitas una ya resuelta en este fragmento.
-- "kidStrengths"/"momFeedback": solo con evidencia real, nunca inventes elogios genéricos.
-- "momPrimaryGoal": solo lo llenas si hay evidencia de que un objetivo pesa más que otros para la madre — no fuerces si no es claro.
-- No inventes nada que no esté en el texto.
-
-TRANSCRIPCIÓN RECIENTE:
-${newText}`;
-
-  try{
-    const raw=await callGemini(prompt);
-    const match=raw.match(/\{[\s\S]*\}/);
-    if(!match)throw new Error('Respuesta inesperada de la IA');
-    const p=JSON.parse(match[0]);
-    mergeNotes(p);
-    renderNotesInline();
-    renderGoals();
-    if(p.objections?.length)handleObjections(p.objections);
-    if(p.kidStrengths?.length||p.momFeedback?.length)handleFeedback(p);
-    showToast('✓ Actualizado');
-  }catch(e){
-    console.error(e);
-    showToast('❌ '+e.message.slice(0,90));
-  }finally{
-    document.getElementById('analyzingBar').classList.remove('on');
-    document.getElementById('liveIndicator').classList.remove('on');
-  }
+  document.getElementById('segCount').textContent=segments.length+' bloques';
 }
 
 function mergeNotes(p){
@@ -783,17 +769,22 @@ function renderGoals(){
   const scroll=document.getElementById('goalsView');
   scroll.innerHTML='';
 
-  // DAD
   if(dad.length){
     const s=document.createElement('div');s.className='goals-section';
     s.innerHTML=`<div class="goals-head" style="background:var(--dad-dim);color:var(--dad);border-bottom:1px solid rgba(245,200,66,.2)"><span>👨</span><span>Padre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${dad.length}</span></div>${dad.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--dad-dim);color:var(--dad);border:1px solid rgba(245,200,66,.3)">Padre</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
     scroll.appendChild(s);
   }
 
-  // MOM — with primary goal highlighted
   if(mom.length){
     const s=document.createElement('div');s.className='goals-section';
     let momHtml=`<div class="goals-head" style="background:var(--mom-dim);color:var(--mom);border-bottom:1px solid rgba(255,159,67,.2)"><span>👩</span><span>Madre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${mom.length}</span></div>`;
+    const matchedExisting=mom.some(g=>g.trim().toLowerCase()===((momPrimaryGoal||'').trim().toLowerCase()));
+    if(momPrimaryGoal&&!matchedExisting){
+      momHtml+=`<div class="goal-item primary">
+        <span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span>
+        <div class="goal-text">${esc(momPrimaryGoal)}<span class="primary-label">👑 Objetivo más fuerte</span></div>
+      </div>`;
+    }
     mom.forEach(goalText=>{
       const isPrimary=momPrimaryGoal&&goalText.trim().toLowerCase()===momPrimaryGoal.trim().toLowerCase();
       momHtml+=`<div class="goal-item${isPrimary?' primary':''}">
@@ -802,21 +793,10 @@ function renderGoals(){
         ${isPrimary?'<span class="crown-badge">👑</span>':''}
       </div>`;
     });
-    // if momPrimaryGoal exists but doesn't exact-match any item (paraphrased), show it separately at top
-    const matchedExisting=mom.some(g=>g.trim().toLowerCase()===((momPrimaryGoal||'').trim().toLowerCase()));
-    if(momPrimaryGoal&&!matchedExisting){
-      momHtml=`<div class="goals-head" style="background:var(--mom-dim);color:var(--mom);border-bottom:1px solid rgba(255,159,67,.2)"><span>👩</span><span>Madre</span><span style="margin-left:auto;font-size:9px;opacity:.7">${mom.length}</span></div>
-        <div class="goal-item primary">
-          <span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span>
-          <div class="goal-text">${esc(momPrimaryGoal)}<span class="primary-label">👑 Objetivo más fuerte</span></div>
-        </div>
-        ${mom.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--mom-dim);color:var(--mom);border:1px solid rgba(255,159,67,.3)">Madre</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
-    }
     s.innerHTML=momHtml;
     scroll.appendChild(s);
   }
 
-  // KID
   if(kid.length){
     const s=document.createElement('div');s.className='goals-section';
     s.innerHTML=`<div class="goals-head" style="background:var(--kid-dim);color:var(--kid);border-bottom:1px solid rgba(62,207,142,.2)"><span>🧒</span><span>Niño / Joven</span><span style="margin-left:auto;font-size:9px;opacity:.7">${kid.length}</span></div>${kid.map(i=>`<div class="goal-item"><span class="goal-tag" style="background:var(--kid-dim);color:var(--kid);border:1px solid rgba(62,207,142,.3)">Niño</span><div class="goal-text">${esc(i)}</div></div>`).join('')}`;
