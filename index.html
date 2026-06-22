@@ -376,22 +376,64 @@ function togglePanel(panel){
 // ════════════ RECORDING ════════════
 function toggleRec(){isRecording?stopRec():startRec();}
 
+let lastInterimText='';
+let interimStableTimer=null;
+let interimStartTime=0;
+
 function createRecognition(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const r=new SR();
   r.lang='es-ES';
   r.continuous=true;
   r.interimResults=true;
-  r.maxAlternatives=1;
+  r.maxAlternatives=3;
 
   r.onresult=(e)=>{
     let interim='';
+    let gotFinal=false;
     for(let i=e.resultIndex;i<e.results.length;i++){
       const t=e.results[i][0].transcript;
-      if(e.results[i].isFinal){addSeg(t.trim());removeInterim();}
-      else interim+=t;
+      if(e.results[i].isFinal){
+        addSeg(t.trim());
+        removeInterim();
+        gotFinal=true;
+      } else {
+        interim+=t;
+      }
     }
-    if(interim)showInterim(interim);
+    if(gotFinal){
+      lastInterimText='';
+      clearTimeout(interimStableTimer);
+      return;
+    }
+    if(interim){
+      showInterim(interim);
+      // Fallback: Chrome's Spanish recognition sometimes never marks a
+      // result as final — it just keeps revising the interim text forever.
+      // If the interim text stops changing for ~1.8s, treat it as final
+      // ourselves so it doesn't get lost.
+      if(interim===lastInterimText){
+        // unchanged since last tick — if it's been stable long enough, commit it
+        if(Date.now()-interimStartTime>1800){
+          clearTimeout(interimStableTimer);
+          const toCommit=interim.trim();
+          if(toCommit){addSeg(toCommit);removeInterim();}
+          lastInterimText='';
+          return;
+        }
+      } else {
+        lastInterimText=interim;
+        interimStartTime=Date.now();
+        clearTimeout(interimStableTimer);
+        interimStableTimer=setTimeout(()=>{
+          if(lastInterimText){
+            const toCommit=lastInterimText.trim();
+            if(toCommit){addSeg(toCommit);removeInterim();}
+            lastInterimText='';
+          }
+        },1800);
+      }
+    }
   };
 
   r.onerror=(e)=>{
@@ -403,6 +445,14 @@ function createRecognition(){
 
   r.onend=()=>{
     if(!isRecording)return;
+    // If there's unflushed interim text when the engine ends, commit it
+    // before restarting so we never silently drop a half-finished sentence.
+    if(lastInterimText.trim()){
+      addSeg(lastInterimText.trim());
+      removeInterim();
+      lastInterimText='';
+    }
+    clearTimeout(interimStableTimer);
     // Always spin up a brand-new recognition instance — reusing the same
     // object after it has ended is unreliable in Chrome and can silently
     // fail to restart, which is what causes transcription to stop dead.
