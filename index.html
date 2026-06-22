@@ -376,17 +376,15 @@ function togglePanel(panel){
 // ════════════ RECORDING ════════════
 function toggleRec(){isRecording?stopRec():startRec();}
 
-function startRec(){
+function createRecognition(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){showToast('❌ Usa Chrome para reconocimiento de voz');return;}
+  const r=new SR();
+  r.lang='es-ES';
+  r.continuous=true;
+  r.interimResults=true;
+  r.maxAlternatives=1;
 
-  recognition=new SR();
-  recognition.lang='es-ES';
-  recognition.continuous=true;
-  recognition.interimResults=true;
-  recognition.maxAlternatives=1;
-
-  recognition.onresult=(e)=>{
+  r.onresult=(e)=>{
     let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       const t=e.results[i][0].transcript;
@@ -396,17 +394,46 @@ function startRec(){
     if(interim)showInterim(interim);
   };
 
-  recognition.onerror=(e)=>{
-    if(e.error==='no-speech')return;
+  r.onerror=(e)=>{
+    if(e.error==='no-speech')return; // normal during silence, onend will follow and we restart
     if(e.error==='not-allowed'){showToast('❌ Permiso de micrófono denegado. Revisa el candado 🔒 en Chrome.');setIsRec(false);return;}
+    if(e.error==='aborted')return; // happens during our own restarts, ignore
     console.warn('SR error:',e.error);
   };
 
-  recognition.onend=()=>{
-    if(isRecording){try{recognition.start();}catch(err){console.warn('restart:',err);}}
+  r.onend=()=>{
+    if(!isRecording)return;
+    // Always spin up a brand-new recognition instance — reusing the same
+    // object after it has ended is unreliable in Chrome and can silently
+    // fail to restart, which is what causes transcription to stop dead.
+    restartRecognitionWithRetry();
   };
 
+  return r;
+}
+
+function restartRecognitionWithRetry(attempt=0){
+  if(!isRecording)return;
   try{
+    recognition=createRecognition();
+    recognition.start();
+  }catch(err){
+    console.warn('restart attempt '+attempt+' failed:',err);
+    if(attempt<5){
+      setTimeout(()=>restartRecognitionWithRetry(attempt+1),300);
+    }else{
+      showToast('⚠️ El micrófono se detuvo y no pudo reiniciarse. Presiona Detener e Iniciar de nuevo.');
+      setIsRec(false);
+    }
+  }
+}
+
+function startRec(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){showToast('❌ Usa Chrome para reconocimiento de voz');return;}
+
+  try{
+    recognition=createRecognition();
     recognition.start();
     setIsRec(true);
     seconds=0;
